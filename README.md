@@ -10,6 +10,31 @@
 
 **[Agentation](https://agentation.com)** is an agent-agnostic visual feedback tool. Click elements on your page, add notes, and copy structured output that helps AI coding agents find the exact code you're referring to.
 
+
+## Consommer ce fork
+
+```json
+{
+  "trustedDependencies": ["agentation"],
+  "devDependencies": {
+    "agentation": "github:Digital-Kickoff-Labs/agentation#main"
+  }
+}
+```
+
+Le dépôt est un monorepo pnpm et le paquet vit dans `package/`, alors que npm, bun et yarn
+installent une dépendance git depuis la **racine**. La racine expose donc `main`, `module`,
+`types` et `exports` vers `package/dist`, et un script `prepare` construit le paquet à
+l'installation quand `dist` est absent — c'est-à-dire chez le consommateur après le clone
+git, jamais chez quelqu'un qui vient de construire ici.
+
+`trustedDependencies` est obligatoire côté consommateur : bun bloque les scripts de cycle de
+vie par défaut, et sans cette ligne l'installation réussit en silence avec un paquet vide.
+
+`prepare` appelle bun. Un développeur du dépôt qui installe avec pnpm et n'a pas bun verra
+donc l'étape échouer ; construire une fois à la main (`cd package && pnpm build`) suffit à
+la désarmer, puisqu'elle ne se déclenche que si `dist` manque.
+
 ## Install
 
 ```bash

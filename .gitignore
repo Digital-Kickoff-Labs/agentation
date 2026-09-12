@@ -7,3 +7,4 @@ mcp/dist
 .env.*
 !.env.example
 .claude/settings.local.json
+package/bun.lock
