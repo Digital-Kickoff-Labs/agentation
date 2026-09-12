@@ -47,6 +47,25 @@ export function clearAnnotations(pathname: string): void {
 }
 
 /**
+ * Remove every page's annotations from localStorage.
+ * Counterpart to `clearAnnotations`, which only clears one pathname.
+ */
+export function clearAllAnnotations(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(STORAGE_PREFIX)) keys.push(key);
+    }
+    // Collected first: removing while iterating shifts the index and skips keys.
+    for (const key of keys) localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+}
+
+/**
  * Load all annotations from localStorage across all pages.
  * Returns a map of pathname -> annotations.
  */
