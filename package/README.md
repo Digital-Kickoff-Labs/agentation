@@ -61,6 +61,25 @@ The toolbar appears in the bottom-right corner. Click to activate, then click an
 | `onSessionCreated` | `(sessionId: string) => void` | - | Called when a new session is created |
 | `webhookUrl` | `string` | - | Webhook URL to receive annotation events |
 
+> **Note:** `webhookUrl` is validated with `new URL()`, so it must be absolute.
+> A relative path such as `/api/feedback` silently leaves the send button disabled.
+
+### Review-wide send and clear
+
+A review usually spans several screens. **Send Annotations** and **Clear all**
+therefore act on every page you annotated, not just the one in front of you —
+otherwise you have to walk back through each screen to send or empty it.
+
+- The badge on the send button shows the total across all pages.
+- Both stay enabled on a page with no annotations of its own, as long as another
+  page has some.
+- The webhook payload carries one `## Page Feedback:` section per page, and each
+  annotation from another page gets a `page` field.
+- Storage is cleared only after the webhook returns OK. A failed send that wiped
+  the review would be the worst possible outcome.
+- Sending always clears, regardless of `autoClearAfterCopy`: keeping what just
+  left means sending it again with the next batch.
+
 ### Programmatic Integration
 
 Use callbacks to receive annotation data directly:

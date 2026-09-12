@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 
 import {
@@ -44,6 +44,7 @@ import {
 import {
   loadAnnotations,
   loadAllAnnotations,
+  clearAllAnnotations,
   saveAnnotations,
   getStorageKey,
   loadSessionId,
@@ -632,6 +633,26 @@ const [settings, setSettings] = useState<ToolbarSettings>(() => {
 
   const pathname =
     typeof window !== "undefined" ? window.location.pathname : "/";
+
+  // Annotations left on other pages. A review usually spans several screens,
+  // so send and clear act on the whole review, not just the page in front of
+  // you — otherwise you have to walk back through every screen you annotated.
+  // Recomputed when the route changes or the current page's annotations do:
+  // those are the only moments the stored set can change under us.
+  const otherPageAnnotations = useMemo(() => {
+    const all = loadAllAnnotations<Annotation>();
+    all.delete(pathname);
+    return all;
+  }, [pathname, annotations]);
+
+  const otherPageCount = useMemo(
+    () =>
+      Array.from(otherPageAnnotations.values()).reduce(
+        (total, list) => total + list.length,
+        0,
+      ),
+    [otherPageAnnotations],
+  );
 
   // Handle showSettings changes with exit animation
   useEffect(() => {
@@ -2868,7 +2889,13 @@ const [settings, setSettings] = useState<ToolbarSettings>(() => {
   const clearAll = useCallback(() => {
     const count = annotations.length;
     const hasDesign = designPlacements.length > 0 || !!rearrangeState;
-    if (count === 0 && drawStrokes.length === 0 && !hasDesign) return;
+    if (
+      count === 0 &&
+      drawStrokes.length === 0 &&
+      !hasDesign &&
+      otherPageCount === 0
+    )
+      return;
 
     // Fire callback with all annotations before clearing
     onAnnotationsClear?.(annotations);
@@ -2933,12 +2960,12 @@ const [settings, setSettings] = useState<ToolbarSettings>(() => {
     originalSetTimeout(() => {
       setAnnotations([]);
       setAnimatedMarkers(new Set()); // Reset animated markers
-      localStorage.removeItem(getStorageKey(pathname));
+      clearAllAnnotations();
       setIsClearing(false);
     }, totalAnimationTime);
 
     originalSetTimeout(() => setCleared(false), 1500);
-  }, [pathname, annotations, drawStrokes, designPlacements, rearrangeState, blankCanvas, wireframePurpose, onAnnotationsClear, fireWebhook, endpoint]);
+  }, [pathname, annotations, otherPageCount, drawStrokes, designPlacements, rearrangeState, blankCanvas, wireframePurpose, onAnnotationsClear, fireWebhook, endpoint]);
 
   // Copy output
   const copyOutput = useCallback(async () => {
@@ -3154,7 +3181,13 @@ const [settings, setSettings] = useState<ToolbarSettings>(() => {
       displayUrl,
       settings.outputDetail,
     );
-    if (!output && designPlacements.length === 0 && !rearrangeState) return;
+    if (
+      !output &&
+      designPlacements.length === 0 &&
+      !rearrangeState &&
+      otherPageCount === 0
+    )
+      return;
     if (!output) output = `## Page Feedback: ${displayUrl}\n`;
 
     // Append design layout section if there are placements
@@ -3176,9 +3209,18 @@ const [settings, setSettings] = useState<ToolbarSettings>(() => {
       }
     }
 
+    // Append the other pages of the review, one section each, using the same
+    // formatter — the agent reading this has one format to parse, not two.
+    const allAnnotations = [...annotations];
+    for (const [otherPath, list] of otherPageAnnotations) {
+      const section = generateOutput(list, otherPath, settings.outputDetail);
+      if (section) output += "\n\n" + section;
+      allAnnotations.push(...list.map((a) => ({ ...a, page: otherPath })));
+    }
+
     // Fire onSubmit callback
     if (onSubmit) {
-      onSubmit(output, annotations);
+      onSubmit(output, allAnnotations);
     }
 
     // Start sending (arrow fades)
@@ -3188,14 +3230,20 @@ const [settings, setSettings] = useState<ToolbarSettings>(() => {
     await new Promise((resolve) => originalSetTimeout(resolve, 150));
 
     // Fire webhook and check result (force=true to bypass webhooksEnabled check for manual sends)
-    const success = await fireWebhook("submit", { output, annotations }, true);
+    const success = await fireWebhook(
+      "submit",
+      { output, annotations: allAnnotations },
+      true,
+    );
 
     // Show result
     setSendState(success ? "sent" : "failed");
     originalSetTimeout(() => setSendState("idle"), 2500);
 
-    // Clear annotations if send succeeded and autoClearAfterCopy is enabled
-    if (success && settings.autoClearAfterCopy) {
+    // Always clear on success, whatever autoClearAfterCopy says. Keeping what
+    // just left means sending it again with the next batch, and the duplicate
+    // only shows up on the receiving end.
+    if (success) {
       originalSetTimeout(() => clearAll(), 500);
     }
   }, [
@@ -3456,7 +3504,7 @@ const [settings, setSettings] = useState<ToolbarSettings>(() => {
 
       // "X" to clear all
       if (e.key === "x" || e.key === "X") {
-        if (annotations.length > 0 || designPlacements.length > 0 || rearrangeState) {
+        if (annotations.length > 0 || designPlacements.length > 0 || rearrangeState || otherPageCount > 0) {
           e.preventDefault();
           hideTooltipsUntilMouseLeave();
           clearAll();
@@ -3470,7 +3518,7 @@ const [settings, setSettings] = useState<ToolbarSettings>(() => {
         const hasValidWebhook =
           isValidUrl(settings.webhookUrl) || isValidUrl(webhookUrl || "");
         if (
-          annotations.length > 0 &&
+          annotations.length + otherPageCount > 0 &&
           hasValidWebhook &&
           sendState === "idle"
         ) {
@@ -3492,6 +3540,7 @@ const [settings, setSettings] = useState<ToolbarSettings>(() => {
     rearrangeState,
     pendingAnnotation,
     annotations.length,
+    otherPageCount,
     settings.webhookUrl,
     webhookUrl,
     sendState,
@@ -3747,7 +3796,7 @@ const [settings, setSettings] = useState<ToolbarSettings>(() => {
                   sendToWebhook();
                 }}
                 disabled={
-                  !hasAnnotations ||
+                  annotations.length + otherPageCount === 0 ||
                   (!isValidUrl(settings.webhookUrl) &&
                     !isValidUrl(webhookUrl || "")) ||
                   sendState === "sending"
@@ -3761,13 +3810,12 @@ const [settings, setSettings] = useState<ToolbarSettings>(() => {
                 }
               >
                 <IconSendArrow size={24} state={sendState} />
-                {hasAnnotations && sendState === "idle" && (
-                  <span
-                    className={styles.buttonBadge}
-                  >
-                    {annotations.length}
-                  </span>
-                )}
+                {annotations.length + otherPageCount > 0 &&
+                  sendState === "idle" && (
+                    <span className={styles.buttonBadge}>
+                      {annotations.length + otherPageCount}
+                    </span>
+                  )}
               </button>
               <span className={styles.buttonTooltip}>
                 Send Annotations
@@ -3783,7 +3831,7 @@ const [settings, setSettings] = useState<ToolbarSettings>(() => {
                   hideTooltipsUntilMouseLeave();
                   clearAll();
                 }}
-                disabled={!hasAnnotations && drawStrokes.length === 0 && designPlacements.length === 0 && !(rearrangeState?.sections?.length)}
+                disabled={!hasAnnotations && drawStrokes.length === 0 && designPlacements.length === 0 && !(rearrangeState?.sections?.length) && otherPageCount === 0}
                 data-danger
               >
                 <IconTrashAlt size={24} />
