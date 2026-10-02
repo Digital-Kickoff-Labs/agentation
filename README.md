@@ -76,7 +76,11 @@ Agentation captures class names, selectors, and element positions so AI agents c
 ## Requirements
 
 - React 18+
-- Desktop browser (mobile not supported)
+- Desktop browser
+
+For Expo / React Native apps, use
+[`agentation-native`](https://github.com/Digital-Kickoff-Labs/agentation-native):
+same annotation protocol and same MCP server, native capture layer.
 
 ## Docs
 

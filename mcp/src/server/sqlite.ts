@@ -102,6 +102,7 @@ function initDatabase(db: Database.Database): void {
       is_multi_select INTEGER DEFAULT 0,
       is_fixed INTEGER DEFAULT 0,
       react_components TEXT,
+      source_file TEXT,
       url TEXT,
       intent TEXT,
       severity TEXT,
@@ -141,6 +142,18 @@ function initDatabase(db: Database.Database): void {
 // -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
+
+/**
+ * Adds a column unless it is already there. Only that one failure is expected;
+ * a locked or corrupt database must still surface.
+ */
+function addColumnIfMissing(db: Database.Database, definition: string): void {
+  try {
+    db.exec(`ALTER TABLE annotations ADD COLUMN ${definition}`);
+  } catch (err) {
+    if (!/duplicate column name/i.test((err as Error).message)) throw err;
+  }
+}
 
 function generateId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -215,6 +228,7 @@ function rowToAnnotation(row: Record<string, unknown>): Annotation {
     isMultiSelect: Boolean(row.is_multi_select),
     isFixed: Boolean(row.is_fixed),
     reactComponents: row.react_components as string | undefined,
+    sourceFile: row.source_file as string | undefined,
     kind,
     ...(kind === "placement" && extra?.placement ? { placement: extra.placement } : {}),
     ...(kind === "rearrange" && extra?.rearrange ? { rearrange: extra.rearrange } : {}),
@@ -240,9 +254,9 @@ export function createSQLiteStore(dbPath?: string): AFSStore {
   db.pragma("journal_mode = WAL");
   initDatabase(db);
 
-  // Safe migrations for new columns (no-ops if already exist)
-  try { db.exec("ALTER TABLE annotations ADD COLUMN kind TEXT DEFAULT 'feedback'"); } catch {}
-  try { db.exec("ALTER TABLE annotations ADD COLUMN extra TEXT"); } catch {}
+  addColumnIfMissing(db, "kind TEXT DEFAULT 'feedback'");
+  addColumnIfMissing(db, "extra TEXT");
+  addColumnIfMissing(db, "source_file TEXT");
 
   // Restore event sequence from last event
   const lastEvent = db.prepare("SELECT MAX(sequence) as seq FROM events").get() as { seq: number | null };
@@ -269,13 +283,13 @@ export function createSQLiteStore(dbPath?: string): AFSStore {
         id, session_id, x, y, comment, element, element_path, timestamp,
         selected_text, bounding_box, nearby_text, css_classes, nearby_elements,
         computed_styles, full_path, accessibility, is_multi_select, is_fixed,
-        react_components, url, intent, severity, status, thread, created_at,
+        react_components, source_file, url, intent, severity, status, thread, created_at,
         updated_at, resolved_at, resolved_by, author_id, kind, extra
       ) VALUES (
         @id, @sessionId, @x, @y, @comment, @element, @elementPath, @timestamp,
         @selectedText, @boundingBox, @nearbyText, @cssClasses, @nearbyElements,
         @computedStyles, @fullPath, @accessibility, @isMultiSelect, @isFixed,
-        @reactComponents, @url, @intent, @severity, @status, @thread, @createdAt,
+        @reactComponents, @sourceFile, @url, @intent, @severity, @status, @thread, @createdAt,
         @updatedAt, @resolvedAt, @resolvedBy, @authorId, @kind, @extra
       )
     `),
@@ -430,6 +444,7 @@ export function createSQLiteStore(dbPath?: string): AFSStore {
         isMultiSelect: annotation.isMultiSelect ? 1 : 0,
         isFixed: annotation.isFixed ? 1 : 0,
         reactComponents: annotation.reactComponents ?? null,
+        sourceFile: annotation.sourceFile ?? null,
         url: annotation.url ?? null,
         intent: annotation.intent ?? null,
         severity: annotation.severity ?? null,
@@ -609,9 +624,9 @@ export function createTenantStore(dbPath?: string): TenantStore {
   db.pragma("journal_mode = WAL");
   initDatabase(db);
 
-  // Safe migrations for new columns (no-ops if already exist)
-  try { db.exec("ALTER TABLE annotations ADD COLUMN kind TEXT DEFAULT 'feedback'"); } catch {}
-  try { db.exec("ALTER TABLE annotations ADD COLUMN extra TEXT"); } catch {}
+  addColumnIfMissing(db, "kind TEXT DEFAULT 'feedback'");
+  addColumnIfMissing(db, "extra TEXT");
+  addColumnIfMissing(db, "source_file TEXT");
 
   // Restore event sequence from last event
   const lastEvent = db.prepare("SELECT MAX(sequence) as seq FROM events").get() as { seq: number | null };
