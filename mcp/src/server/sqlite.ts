@@ -143,6 +143,18 @@ function initDatabase(db: Database.Database): void {
 // Helpers
 // -----------------------------------------------------------------------------
 
+/**
+ * Adds a column unless it is already there. Only that one failure is expected;
+ * a locked or corrupt database must still surface.
+ */
+function addColumnIfMissing(db: Database.Database, definition: string): void {
+  try {
+    db.exec(`ALTER TABLE annotations ADD COLUMN ${definition}`);
+  } catch (err) {
+    if (!/duplicate column name/i.test((err as Error).message)) throw err;
+  }
+}
+
 function generateId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -242,10 +254,9 @@ export function createSQLiteStore(dbPath?: string): AFSStore {
   db.pragma("journal_mode = WAL");
   initDatabase(db);
 
-  // Safe migrations for new columns (no-ops if already exist)
-  try { db.exec("ALTER TABLE annotations ADD COLUMN kind TEXT DEFAULT 'feedback'"); } catch {}
-  try { db.exec("ALTER TABLE annotations ADD COLUMN extra TEXT"); } catch {}
-  try { db.exec("ALTER TABLE annotations ADD COLUMN source_file TEXT"); } catch {}
+  addColumnIfMissing(db, "kind TEXT DEFAULT 'feedback'");
+  addColumnIfMissing(db, "extra TEXT");
+  addColumnIfMissing(db, "source_file TEXT");
 
   // Restore event sequence from last event
   const lastEvent = db.prepare("SELECT MAX(sequence) as seq FROM events").get() as { seq: number | null };
@@ -613,10 +624,9 @@ export function createTenantStore(dbPath?: string): TenantStore {
   db.pragma("journal_mode = WAL");
   initDatabase(db);
 
-  // Safe migrations for new columns (no-ops if already exist)
-  try { db.exec("ALTER TABLE annotations ADD COLUMN kind TEXT DEFAULT 'feedback'"); } catch {}
-  try { db.exec("ALTER TABLE annotations ADD COLUMN extra TEXT"); } catch {}
-  try { db.exec("ALTER TABLE annotations ADD COLUMN source_file TEXT"); } catch {}
+  addColumnIfMissing(db, "kind TEXT DEFAULT 'feedback'");
+  addColumnIfMissing(db, "extra TEXT");
+  addColumnIfMissing(db, "source_file TEXT");
 
   // Restore event sequence from last event
   const lastEvent = db.prepare("SELECT MAX(sequence) as seq FROM events").get() as { seq: number | null };
