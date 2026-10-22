@@ -33,7 +33,9 @@ jobs:
         with:
           version: "10.18.3"
       - name: Install locked dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Build native dependencies
+        run: pnpm rebuild esbuild better-sqlite3
       - name: Tests
         run: pnpm --filter agentation test --maxWorkers=2
       - name: Build
